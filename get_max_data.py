@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -36,19 +37,29 @@ def title_ids_with_local_assets(titles: list[dict], localized_images: dict) -> l
     return title_ids
 
 
+def release_version(docs_version: str, product_version: str, bundle_hash: str) -> str:
+    """Make every official bundle revision addressable by an immutable release tag."""
+    if not re.fullmatch(r"[0-9a-f]{40}", bundle_hash):
+        raise ValueError(f"invalid bundle hash: {bundle_hash!r}")
+    return f"{docs_version}-{product_version}-{bundle_hash}"
+
+
 def set_version():
     docs_version = json.loads(
         (DATA_DIR / "client/docs_version/version.json").read_text(encoding="utf-8")
     )["version"]
-    product_version = json.loads(
-        (DATA_DIR / "meta.json").read_text(encoding="utf-8")
-    )["product_version"]
+    metadata = json.loads((DATA_DIR / "meta.json").read_text(encoding="utf-8"))
+    version = release_version(
+        docs_version,
+        metadata["product_version"],
+        metadata["bundle_hash"],
+    )
 
     output = os.getenv("GITHUB_OUTPUT")
     if not output:
         raise RuntimeError("GITHUB_OUTPUT is not set")
     with open(output, "a", encoding="utf-8") as file:
-        file.write(f"version={docs_version}-{product_version}\n")
+        file.write(f"version={version}\n")
 
 
 def _read_table(relative_path: str):

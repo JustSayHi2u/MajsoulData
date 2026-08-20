@@ -23,6 +23,7 @@ class RepositoryConfigTests(unittest.TestCase):
         self.assertIn("python -m compileall -q main.py src tests", workflow)
         self.assertIn("json ok", workflow)
         self.assertIn("protoc --proto_path=data/protocol/proto", workflow)
+        self.assertIn("The tag includes bundle_hash", workflow)
 
     def test_gitattributes_hides_raw_diff_and_marks_generated_outputs(self):
         attributes = Path(".gitattributes").read_text(encoding="utf-8")
