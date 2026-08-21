@@ -1,15 +1,15 @@
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from ruamel.yaml import YAML
 
 
 DATA_DIR = Path("data")
-CLIENT_TIMEZONE = ZoneInfo("Asia/Shanghai")
+# 国服资源表使用固定 UTC+8 时间；避免 Windows Python 缺少 IANA tzdata。
+CLIENT_TIMEZONE = timezone(timedelta(hours=8), name="Asia/Shanghai")
 EXPIRED_NAME_MARKERS = (
     "已过期",
     "已過期",
