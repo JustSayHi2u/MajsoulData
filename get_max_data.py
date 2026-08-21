@@ -42,9 +42,42 @@ def title_ids_with_local_assets(titles: list[dict], localized_images: dict) -> l
     return ids_with_local_assets(titles, localized_images)
 
 
+def deduplicate_head_frames(items: list[dict]) -> list[dict]:
+    """Keep one deterministic item for each visually identical portrait frame."""
+    preferred: dict[str, dict] = {}
+    for item in items:
+        if item.get("type") != 5 or not isinstance(item.get("icon"), str):
+            continue
+        icon = _normalized_asset_path(item["icon"])
+        current = preferred.get(icon)
+        rank = (
+            item.get("item_expire") is None,
+            item.get("item_expire") or "",
+            item["id"],
+        )
+        if current is None:
+            preferred[icon] = item
+            continue
+        current_rank = (
+            current.get("item_expire") is None,
+            current.get("item_expire") or "",
+            current["id"],
+        )
+        if rank > current_rank:
+            preferred[icon] = item
+
+    preferred_ids = {item["id"] for item in preferred.values()}
+    return [
+        item
+        for item in items
+        if item.get("type") != 5 or item.get("id") in preferred_ids
+    ]
+
+
 def item_ids_with_local_assets(items: list[dict], localized_images: dict) -> list[int]:
-    """Drop expired tombstones and cross-region decorations without local icons."""
+    """Drop unusable assets and duplicate tournament portrait-frame revisions."""
     decorations = [item for item in items if item.get("category") == 5]
+    decorations = deduplicate_head_frames(decorations)
     return ids_with_local_assets(decorations, localized_images)
 
 

@@ -1,6 +1,7 @@
 import unittest
 
 from get_max_data import (
+    deduplicate_head_frames,
     item_ids_with_local_assets,
     release_version,
     title_ids_with_local_assets,
@@ -62,6 +63,57 @@ class MaxDataTests(unittest.TestCase):
         self.assertEqual(
             item_ids_with_local_assets(items, localized_images),
             [305007],
+        )
+
+    def test_head_frames_keep_one_visual_revision_without_touching_other_items(self):
+        items = [
+            {
+                "id": 305510,
+                "category": 5,
+                "type": 5,
+                "icon": "deco/head/frame.jpg",
+                "item_expire": "2021-07-01 05:00:00",
+            },
+            {
+                "id": 30550046,
+                "category": 5,
+                "type": 5,
+                "icon": "deco/head/frame.jpg",
+                "item_expire": "2028-01-01 05:00:00",
+            },
+            {
+                "id": 305500,
+                "category": 5,
+                "type": 5,
+                "icon": "deco/head/sprout.jpg",
+                "item_expire": None,
+            },
+            {
+                "id": 305555,
+                "category": 5,
+                "type": 5,
+                "icon": "deco/head/sprout.jpg",
+                "item_expire": "2020-05-24 05:00:00",
+            },
+            {
+                "id": 305025,
+                "category": 5,
+                "type": 4,
+                "icon": "deco/music/shared.jpg",
+                "item_expire": None,
+            },
+            {
+                "id": 305026,
+                "category": 5,
+                "type": 4,
+                "icon": "deco/music/shared.jpg",
+                "item_expire": None,
+            },
+        ]
+
+        self.assertEqual(
+            [item["id"] for item in deduplicate_head_frames(items)],
+            [30550046, 305500, 305025, 305026],
         )
 
 
