@@ -2,8 +2,8 @@ name: Data Update
 
 on:
   schedule:
-    # Runs at 0 minutes past the hour, every 4 hours
-    - cron: '0 */4 * * *'
+    # Cheap live-hash preflight every 15 minutes; heavy extraction runs only on change.
+    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -20,7 +20,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check_live:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.live.outputs.changed }}
+      product_version: ${{ steps.live.outputs.product_version }}
+      bundle_hash: ${{ steps.live.outputs.bundle_hash }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check official live resource version
+        id: live
+        run: python scripts/check_live_version.py
+
   update-data:
+    needs: check_live
+    if: >-
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.check_live.outputs.changed == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

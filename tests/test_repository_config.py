@@ -24,6 +24,9 @@ class RepositoryConfigTests(unittest.TestCase):
         self.assertIn("json ok", workflow)
         self.assertIn("protoc --proto_path=data/protocol/proto", workflow)
         self.assertIn("python scripts/audit_resources.py", workflow)
+        self.assertIn("cron: '*/15 * * * *'", workflow)
+        self.assertIn("python scripts/check_live_version.py", workflow)
+        self.assertIn("needs.check_live.outputs.changed == 'true'", workflow)
         self.assertIn("The tag includes bundle_hash", workflow)
 
     def test_gitattributes_hides_raw_diff_and_marks_generated_outputs(self):
