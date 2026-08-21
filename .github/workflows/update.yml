@@ -72,6 +72,9 @@ jobs:
           files=$(find data/protocol/proto -maxdepth 1 -name '*.proto' -printf '%f\n' | sort)
           protoc --proto_path=data/protocol/proto --descriptor_set_out=/tmp/majsoul_protocol.desc $files
 
+      - name: Audit live display resources
+        run: python scripts/audit_resources.py
+
       - name: Commit and push changes
         id: commit_changes
         run: |

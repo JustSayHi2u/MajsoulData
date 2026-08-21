@@ -1,12 +1,22 @@
 import json
 import os
 import re
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from ruamel.yaml import YAML
 
 
 DATA_DIR = Path("data")
+CLIENT_TIMEZONE = ZoneInfo("Asia/Shanghai")
+EXPIRED_NAME_MARKERS = (
+    "已过期",
+    "已過期",
+    "expired",
+    "期限切れ",
+    "만료",
+)
 
 
 def _normalized_asset_path(path: str) -> str:
@@ -42,6 +52,35 @@ def title_ids_with_local_assets(titles: list[dict], localized_images: dict) -> l
     return ids_with_local_assets(titles, localized_images)
 
 
+def has_expired_name(record: dict) -> bool:
+    """Detect official tombstones that remain in tables after a feature is retired."""
+    names = record.get("name")
+    if not isinstance(names, dict):
+        return False
+    return any(
+        marker in str(value).lower()
+        for value in names.values()
+        for marker in EXPIRED_NAME_MARKERS
+    )
+
+
+def parse_client_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=CLIENT_TIMEZONE)
+    return parsed.astimezone(CLIENT_TIMEZONE)
+
+
+def is_past_item_expiry(item: dict, now: datetime | None = None) -> bool:
+    value = item.get("item_expire")
+    if not isinstance(value, str) or not value.strip():
+        return False
+    reference = now or datetime.now(CLIENT_TIMEZONE)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=CLIENT_TIMEZONE)
+    return parse_client_datetime(value) <= reference.astimezone(CLIENT_TIMEZONE)
+
+
 def deduplicate_head_frames(items: list[dict]) -> list[dict]:
     """Keep one deterministic item for each visually identical portrait frame."""
     preferred: dict[str, dict] = {}
@@ -74,9 +113,20 @@ def deduplicate_head_frames(items: list[dict]) -> list[dict]:
     ]
 
 
-def item_ids_with_local_assets(items: list[dict], localized_images: dict) -> list[int]:
+def item_ids_with_local_assets(
+    items: list[dict],
+    localized_images: dict,
+    *,
+    now: datetime | None = None,
+) -> list[int]:
     """Drop unusable assets and duplicate tournament portrait-frame revisions."""
-    decorations = [item for item in items if item.get("category") == 5]
+    decorations = [
+        item
+        for item in items
+        if item.get("category") == 5
+        and not has_expired_name(item)
+        and not is_past_item_expiry(item, now)
+    ]
     decorations = deduplicate_head_frames(decorations)
     return ids_with_local_assets(decorations, localized_images)
 

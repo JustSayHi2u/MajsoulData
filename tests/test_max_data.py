@@ -1,7 +1,9 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from get_max_data import (
     deduplicate_head_frames,
+    has_expired_name,
     item_ids_with_local_assets,
     release_version,
     title_ids_with_local_assets,
@@ -50,12 +52,19 @@ class MaxDataTests(unittest.TestCase):
         items = [
             {"id": 305007, "category": 5, "icon": "deco/effect/ron.jpg"},
             {"id": 305214, "category": 5, "icon": None},
+            {
+                "id": 30990016,
+                "category": 5,
+                "icon": "deco/hand/legacy.jpg",
+                "name": {"chs": "手-赤麟(已过期)"},
+            },
             {"id": 30580025, "category": 5, "icon": "deco/kr/table.jpg"},
             {"id": 999999, "category": 8, "icon": "deco/loading.jpg"},
         ]
         localized_images = {
             "items": [
                 {"filepath": "deco\\effect\\ron.jpg", "fileType": 1},
+                {"filepath": "deco/hand/legacy.jpg", "fileType": 1},
                 {"filepath": "deco/loading.jpg", "fileType": 1},
             ]
         }
@@ -64,6 +73,39 @@ class MaxDataTests(unittest.TestCase):
             item_ids_with_local_assets(items, localized_images),
             [305007],
         )
+
+    def test_item_ids_drop_records_after_official_expiry(self):
+        items = [
+            {
+                "id": 305712,
+                "category": 5,
+                "icon": "deco/mjpai/rml.jpg",
+                "item_expire": "2023-06-01 00:00:00",
+            },
+            {
+                "id": 30550046,
+                "category": 5,
+                "icon": "deco/head/future.jpg",
+                "item_expire": "2028-01-01 05:00:00",
+            },
+        ]
+        localized_images = {
+            "items": [
+                {"filepath": "deco/mjpai/rml.jpg"},
+                {"filepath": "deco/head/future.jpg"},
+            ]
+        }
+        now = datetime(2026, 8, 21, tzinfo=timezone(timedelta(hours=8)))
+
+        self.assertEqual(
+            item_ids_with_local_assets(items, localized_images, now=now),
+            [30550046],
+        )
+
+    def test_expired_name_detection_is_locale_aware(self):
+        self.assertTrue(has_expired_name({"name": {"chs": "手-赤麟(已过期)"}}))
+        self.assertTrue(has_expired_name({"name": {"en": "Legacy Hand (Expired)"}}))
+        self.assertFalse(has_expired_name({"name": {"chs": "橘猫爪"}}))
 
     def test_head_frames_keep_one_visual_revision_without_touching_other_items(self):
         items = [
