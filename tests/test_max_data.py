@@ -1,6 +1,10 @@
 import unittest
 
-from get_max_data import release_version, title_ids_with_local_assets
+from get_max_data import (
+    item_ids_with_local_assets,
+    release_version,
+    title_ids_with_local_assets,
+)
 
 
 class MaxDataTests(unittest.TestCase):
@@ -40,6 +44,25 @@ class MaxDataTests(unittest.TestCase):
                 [{"id": 600001, "icon": "deco/title/shared.png"}],
                 {"items": []},
             )
+
+    def test_item_ids_drop_expired_tombstones_and_cross_region_assets(self):
+        items = [
+            {"id": 305007, "category": 5, "icon": "deco/effect/ron.jpg"},
+            {"id": 305214, "category": 5, "icon": None},
+            {"id": 30580025, "category": 5, "icon": "deco/kr/table.jpg"},
+            {"id": 999999, "category": 8, "icon": "deco/loading.jpg"},
+        ]
+        localized_images = {
+            "items": [
+                {"filepath": "deco\\effect\\ron.jpg", "fileType": 1},
+                {"filepath": "deco/loading.jpg", "fileType": 1},
+            ]
+        }
+
+        self.assertEqual(
+            item_ids_with_local_assets(items, localized_images),
+            [305007],
+        )
 
 
 if __name__ == "__main__":

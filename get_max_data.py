@@ -13,8 +13,8 @@ def _normalized_asset_path(path: str) -> str:
     return path.replace("\\", "/").lstrip("/").lower()
 
 
-def title_ids_with_local_assets(titles: list[dict], localized_images: dict) -> list[int]:
-    """Return title IDs whose icon is shipped by the current client issuer."""
+def ids_with_local_assets(records: list[dict], localized_images: dict) -> list[int]:
+    """Return record IDs whose icon is shipped by the current client issuer."""
     items = localized_images.get("items")
     if not isinstance(items, list):
         raise ValueError("localizedImg is missing items")
@@ -23,18 +23,29 @@ def title_ids_with_local_assets(titles: list[dict], localized_images: dict) -> l
         for item in items
         if isinstance(item, dict) and isinstance(item.get("filepath"), str)
     }
-    title_ids = [
-        title["id"]
-        for title in titles
-        if isinstance(title, dict)
-        and isinstance(title.get("id"), int)
-        and not isinstance(title.get("id"), bool)
-        and isinstance(title.get("icon"), str)
-        and _normalized_asset_path(title["icon"]) in asset_paths
+    record_ids = [
+        record["id"]
+        for record in records
+        if isinstance(record, dict)
+        and isinstance(record.get("id"), int)
+        and not isinstance(record.get("id"), bool)
+        and isinstance(record.get("icon"), str)
+        and _normalized_asset_path(record["icon"]) in asset_paths
     ]
-    if not title_ids:
-        raise ValueError("current issuer has no usable title icons")
-    return title_ids
+    if not record_ids:
+        raise ValueError("current issuer has no usable record icons")
+    return record_ids
+
+
+def title_ids_with_local_assets(titles: list[dict], localized_images: dict) -> list[int]:
+    """Return title IDs whose icon is shipped by the current client issuer."""
+    return ids_with_local_assets(titles, localized_images)
+
+
+def item_ids_with_local_assets(items: list[dict], localized_images: dict) -> list[int]:
+    """Drop expired tombstones and cross-region decorations without local icons."""
+    decorations = [item for item in items if item.get("category") == 5]
+    return ids_with_local_assets(decorations, localized_images)
 
 
 def release_version(docs_version: str, product_version: str, bundle_hash: str) -> str:
@@ -78,6 +89,7 @@ def set_max_data():
         )
     )
 
+    items = _read_table("item_definition/item.json")
     max_data = {
         "character": [
             character["id"]
@@ -87,15 +99,11 @@ def set_max_data():
             skin["id"] for skin in _read_table("item_definition/skin.json")
         ],
         "title": title_ids_with_local_assets(titles, localized_images),
-        "item": [
-            item["id"]
-            for item in _read_table("item_definition/item.json")
-            if item["category"] == 5
-        ],
+        "item": item_ids_with_local_assets(items, localized_images),
     }
     item_loading_images = [
         item["id"]
-        for item in _read_table("item_definition/item.json")
+        for item in items
         if item["category"] == 8
     ]
     max_data["loading_image"] = list(
