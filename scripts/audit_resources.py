@@ -19,6 +19,7 @@ from get_max_data import (  # noqa: E402
     has_expired_name,
     is_past_item_expiry,
     item_ids_with_local_assets,
+    select_character_skin_resources,
     title_ids_with_local_assets,
 )
 from src.pipeline import (  # noqa: E402
@@ -124,6 +125,12 @@ def audit(timeout: int) -> dict:
     usable_item_ids = set(item_ids_with_local_assets(items, localized, now=now))
     usable_items = [item for item in items if item.get("id") in usable_item_ids]
     usable_title_ids = set(title_ids_with_local_assets(titles, localized))
+    resource_selection = select_character_skin_resources(
+        characters,
+        skins,
+        bundle_paths,
+    )
+    usable_character_ids = set(resource_selection["character_ids"])
 
     failures: dict[str, list] = {}
     failures["decoration_icons"] = [
@@ -157,15 +164,6 @@ def audit(timeout: int) -> dict:
         if character.get("init_skin") not in skin_ids
         or character.get("full_fetter_skin") not in skin_ids
     ]
-    failures["skin_bundles"] = [
-        skin["id"]
-        for skin in skins
-        if not any(
-            path.startswith(f"myassets/{normalize(skin['path'])}/")
-            for path in bundle_paths
-        )
-    ]
-
     loading_item_rows = [item for item in items if item.get("category") == 8]
     failures["loading_item_icons"] = [
         item["id"]
@@ -197,7 +195,8 @@ def audit(timeout: int) -> dict:
     failures["character_voice_references"] = [
         character["id"]
         for character in characters
-        if character.get("sound") not in voice_ids
+        if character.get("id") in usable_character_ids
+        and character.get("sound") not in voice_ids
     ]
 
     expired_placeholders = [
@@ -224,8 +223,10 @@ def audit(timeout: int) -> dict:
         "live": live,
         "counts": {
             "bundle_assets": len(bundle_paths),
-            "characters": len(characters),
-            "skins": len(skins),
+            "characters_source": len(characters),
+            "characters_usable": len(resource_selection["character_ids"]),
+            "skins_source": len(skins),
+            "skins_usable": len(resource_selection["skin_ids"]),
             "titles_source": len(titles),
             "titles_usable": len(usable_title_ids),
             "decorations_source": sum(item.get("category") == 5 for item in items),
@@ -242,6 +243,11 @@ def audit(timeout: int) -> dict:
             "expired_placeholder": expired_placeholders,
             "expired_time": expired_by_time,
             "missing_current_issuer_icon": missing_issuer_icons,
+            **resource_selection["excluded"],
+        },
+        "selection": {
+            "character_ids": resource_selection["character_ids"],
+            "skin_ids": resource_selection["skin_ids"],
         },
         "failures": {key: value for key, value in failures.items() if value},
         "decoration_types": dict(
@@ -254,8 +260,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     report = audit(args.timeout)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:

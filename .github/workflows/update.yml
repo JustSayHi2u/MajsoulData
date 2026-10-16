@@ -97,7 +97,7 @@ jobs:
           protoc --proto_path=data/protocol/proto --descriptor_set_out=/tmp/majsoul_protocol.desc $files
 
       - name: Audit live display resources
-        run: python scripts/audit_resources.py
+        run: python scripts/audit_resources.py --output "$RUNNER_TEMP/majsoul-resource-audit.json"
 
       - name: Commit and push changes
         id: commit_changes
@@ -119,7 +119,7 @@ jobs:
 
       - name: Run get_max_data.py
         id: get_max_data
-        run: python get_max_data.py
+        run: python get_max_data.py --resource-audit "$RUNNER_TEMP/majsoul-resource-audit.json"
 
       - name: Get latest release
         id: get_latest_release

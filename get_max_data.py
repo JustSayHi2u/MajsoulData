@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import re
@@ -131,6 +132,70 @@ def item_ids_with_local_assets(
     return ids_with_local_assets(decorations, localized_images)
 
 
+def select_character_skin_resources(
+    characters: list[dict],
+    skins: list[dict],
+    bundle_paths: set[str],
+) -> dict:
+    """Select only characters and skins backed by the current issuer bundle."""
+    normalized_bundle_paths = {
+        _normalized_asset_path(path) for path in bundle_paths if isinstance(path, str)
+    }
+    skin_ids_with_bundle = []
+    missing_bundle = []
+    for skin in skins:
+        skin_id = skin.get("id") if isinstance(skin, dict) else None
+        skin_path = skin.get("path") if isinstance(skin, dict) else None
+        if not isinstance(skin_id, int) or isinstance(skin_id, bool):
+            continue
+        prefix = (
+            f"myassets/{_normalized_asset_path(skin_path).strip('/')}/"
+            if isinstance(skin_path, str) and skin_path.strip()
+            else ""
+        )
+        if prefix and any(path.startswith(prefix) for path in normalized_bundle_paths):
+            skin_ids_with_bundle.append(skin_id)
+        else:
+            missing_bundle.append(skin_id)
+
+    bundled_skin_ids = set(skin_ids_with_bundle)
+    character_ids = []
+    missing_required_skin = []
+    for character in characters:
+        character_id = character.get("id") if isinstance(character, dict) else None
+        if not isinstance(character_id, int) or isinstance(character_id, bool):
+            continue
+        required = {character.get("init_skin"), character.get("full_fetter_skin")}
+        if required <= bundled_skin_ids:
+            character_ids.append(character_id)
+        else:
+            missing_required_skin.append(character_id)
+
+    usable_character_ids = set(character_ids)
+    skin_ids = []
+    unavailable_character = []
+    for skin in skins:
+        skin_id = skin.get("id") if isinstance(skin, dict) else None
+        if skin_id not in bundled_skin_ids:
+            continue
+        if skin.get("character_id") in usable_character_ids:
+            skin_ids.append(skin_id)
+        else:
+            unavailable_character.append(skin_id)
+
+    if not character_ids or not skin_ids:
+        raise ValueError("current issuer has no usable character skin resources")
+    return {
+        "character_ids": character_ids,
+        "skin_ids": skin_ids,
+        "excluded": {
+            "skin_missing_bundle": missing_bundle,
+            "skin_unavailable_character": unavailable_character,
+            "character_missing_required_skin": missing_required_skin,
+        },
+    }
+
+
 def release_version(docs_version: str, product_version: str, bundle_hash: str) -> str:
     """Make every official bundle revision addressable by an immutable release tag."""
     if not re.fullmatch(r"[0-9a-f]{40}", bundle_hash):
@@ -162,9 +227,80 @@ def _read_table(relative_path: str):
     )
 
 
-def set_max_data():
+def _resource_selection(
+    audit_path: Path,
+    metadata: dict,
+    characters: list[dict],
+    skins: list[dict],
+) -> tuple[list[int], list[int]]:
+    report = json.loads(audit_path.read_text(encoding="utf-8"))
+    live = report.get("live")
+    if not isinstance(live, dict):
+        raise ValueError("resource audit is missing live metadata")
+    for key in ("issuer", "product_version", "bundle_profile", "bundle_hash"):
+        if live.get(key) != metadata.get(key):
+            raise ValueError(
+                f"resource audit {key}={live.get(key)!r} does not match "
+                f"data/meta.json value {metadata.get(key)!r}"
+            )
+
+    selection = report.get("selection")
+    if not isinstance(selection, dict):
+        raise ValueError("resource audit is missing selection")
+    character_ids = selection.get("character_ids")
+    skin_ids = selection.get("skin_ids")
+    if not isinstance(character_ids, list) or not character_ids:
+        raise ValueError("resource audit character selection is empty")
+    if not isinstance(skin_ids, list) or not skin_ids:
+        raise ValueError("resource audit skin selection is empty")
+    if len(character_ids) != len(set(character_ids)):
+        raise ValueError("resource audit character selection contains duplicates")
+    if len(skin_ids) != len(set(skin_ids)):
+        raise ValueError("resource audit skin selection contains duplicates")
+
+    characters_by_id = {character["id"]: character for character in characters}
+    skins_by_id = {skin["id"]: skin for skin in skins}
+    unknown_characters = set(character_ids) - set(characters_by_id)
+    unknown_skins = set(skin_ids) - set(skins_by_id)
+    if unknown_characters or unknown_skins:
+        raise ValueError(
+            "resource audit references unknown records: "
+            f"characters={sorted(unknown_characters)} skins={sorted(unknown_skins)}"
+        )
+
+    selected_skin_ids = set(skin_ids)
+    selected_character_ids = set(character_ids)
+    broken_characters = [
+        character_id
+        for character_id in character_ids
+        if characters_by_id[character_id].get("init_skin") not in selected_skin_ids
+        or characters_by_id[character_id].get("full_fetter_skin")
+        not in selected_skin_ids
+    ]
+    orphan_skins = [
+        skin_id
+        for skin_id in skin_ids
+        if skins_by_id[skin_id].get("character_id") not in selected_character_ids
+    ]
+    if broken_characters or orphan_skins:
+        raise ValueError(
+            "resource audit selection is inconsistent: "
+            f"characters={broken_characters} orphan_skins={orphan_skins}"
+        )
+    return character_ids, skin_ids
+
+
+def set_max_data(resource_audit: Path):
     metadata = json.loads((DATA_DIR / "meta.json").read_text(encoding="utf-8"))
     issuer = metadata["issuer"]
+    characters = _read_table("item_definition/character.json")
+    skins = _read_table("item_definition/skin.json")
+    character_ids, skin_ids = _resource_selection(
+        resource_audit,
+        metadata,
+        characters,
+        skins,
+    )
     titles = _read_table("item_definition/title.json")
     localized_images = json.loads(
         (DATA_DIR / f"client/docs/localizedImg_{issuer}.json").read_text(
@@ -174,13 +310,8 @@ def set_max_data():
 
     items = _read_table("item_definition/item.json")
     max_data = {
-        "character": [
-            character["id"]
-            for character in _read_table("item_definition/character.json")
-        ],
-        "skin": [
-            skin["id"] for skin in _read_table("item_definition/skin.json")
-        ],
+        "character": character_ids,
+        "skin": skin_ids,
         "title": title_ids_with_local_assets(titles, localized_images),
         "item": item_ids_with_local_assets(items, localized_images),
     }
@@ -201,8 +332,10 @@ def set_max_data():
         )
     )
     max_data["emoji"] = {}
+    selected_character_ids = set(character_ids)
     for emoji in _read_table("character/emoji.json"):
-        max_data["emoji"].setdefault(emoji["charid"], []).append(emoji["sub_id"])
+        if emoji["charid"] in selected_character_ids:
+            max_data["emoji"].setdefault(emoji["charid"], []).append(emoji["sub_id"])
     max_data["endings"] = [
         ending["id"] for ending in _read_table("spot/rewards.json")
     ]
@@ -212,8 +345,11 @@ def set_max_data():
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resource-audit", type=Path, required=True)
+    args = parser.parse_args()
     set_version()
-    set_max_data()
+    set_max_data(args.resource_audit)
 
 
 if __name__ == "__main__":

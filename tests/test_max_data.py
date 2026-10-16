@@ -1,16 +1,92 @@
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from get_max_data import (
     deduplicate_head_frames,
     has_expired_name,
+    _resource_selection,
     item_ids_with_local_assets,
     release_version,
+    select_character_skin_resources,
     title_ids_with_local_assets,
 )
 
 
 class MaxDataTests(unittest.TestCase):
+    def test_character_and_skin_selection_requires_live_bundle_assets(self):
+        characters = [
+            {"id": 200001, "init_skin": 400101, "full_fetter_skin": 400102},
+            {"id": 200002, "init_skin": 400201, "full_fetter_skin": 400202},
+            {"id": 200003, "init_skin": 400301, "full_fetter_skin": 400302},
+        ]
+        skins = [
+            {"id": 400101, "character_id": 200001, "path": "deco/character/a"},
+            {"id": 400102, "character_id": 200001, "path": "deco/character/a_0"},
+            {"id": 400103, "character_id": 200001, "path": "deco/character/a_alt"},
+            {"id": 400201, "character_id": 200002, "path": "deco/character/b"},
+            {"id": 400202, "character_id": 200002, "path": "deco/character/b_0"},
+            {"id": 400203, "character_id": 200002, "path": "deco/character/b_alt"},
+            {"id": 400301, "character_id": 200003, "path": "deco/character/c"},
+            {"id": 400302, "character_id": 200003, "path": "deco/character/c_0"},
+            {"id": 400303, "character_id": 200003, "path": "deco/character/c_alt"},
+        ]
+        bundle_paths = {
+            "MyAssets/Deco/Character/A/prefab.prefab",
+            "myassets/deco/character/a_0/spine.atlas",
+            "myassets/deco/character/a_alt/spine.atlas",
+            "myassets/deco/character/b_0/spine.atlas",
+            "myassets/deco/character/b_alt/spine.atlas",
+            "myassets/deco/character/c/spine.atlas",
+            "myassets/deco/character/c_0/spine.atlas",
+        }
+
+        selection = select_character_skin_resources(characters, skins, bundle_paths)
+
+        self.assertEqual(selection["character_ids"], [200001, 200003])
+        self.assertEqual(
+            selection["skin_ids"],
+            [400101, 400102, 400103, 400301, 400302],
+        )
+        self.assertEqual(
+            selection["excluded"]["skin_missing_bundle"],
+            [400201, 400303],
+        )
+        self.assertEqual(
+            selection["excluded"]["skin_unavailable_character"],
+            [400202, 400203],
+        )
+        self.assertEqual(
+            selection["excluded"]["character_missing_required_skin"],
+            [200002],
+        )
+
+    def test_resource_selection_rejects_stale_bundle_audit(self):
+        metadata = {
+            "issuer": "chs_t",
+            "product_version": "4.0.47",
+            "bundle_profile": "ASTC",
+            "bundle_hash": "a" * 40,
+        }
+        report = {
+            "live": {**metadata, "bundle_hash": "b" * 40},
+            "selection": {"character_ids": [200001], "skin_ids": [400101, 400102]},
+        }
+        characters = [
+            {"id": 200001, "init_skin": 400101, "full_fetter_skin": 400102}
+        ]
+        skins = [
+            {"id": 400101, "character_id": 200001},
+            {"id": 400102, "character_id": 200001},
+        ]
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "audit.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "bundle_hash"):
+                _resource_selection(path, metadata, characters, skins)
+
     def test_release_version_changes_when_only_bundle_hash_changes(self):
         first = release_version("0.16.267", "4.0.46", "a" * 40)
         second = release_version("0.16.267", "4.0.46", "b" * 40)
